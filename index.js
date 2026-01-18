@@ -1,76 +1,78 @@
 import TelegramBot from "node-telegram-bot-api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-/* ================= CONFIG ================= */
+/* ===== ENV ===== */
+const {
+  TELEGRAM_TOKEN,
+  TELEGRAM_CHAT_ID,
+  WALLET,
+  RPC_URL,
+} = process.env;
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
-const WALLET = new PublicKey(process.env.WALLET);
-const RPC_URL = process.env.RPC_URL;
-
-/* ================= UTILS ================= */
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/* ================= INIT ================= */
-
-if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID || !RPC_URL || !process.env.WALLET) {
-  console.error("❌ ENV ERROR: Missing env variables");
+if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID || !WALLET || !RPC_URL) {
+  console.error("❌ Missing ENV variables");
   process.exit(1);
 }
 
+/* ===== INIT ===== */
 const connection = new Connection(RPC_URL, "confirmed");
+const walletPubkey = new PublicKey(WALLET);
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 console.log("BOT STARTING");
-console.log("Watching wallet:", WALLET.toBase58());
+console.log("Watching wallet:", walletPubkey.toBase58());
 
-/* ================= STATE ================= */
-
+/* ===== STATE ===== */
 const startTime = Date.now();
 const seen = new Set();
 let onlineSent = false;
 
-/* ================= /status ================= */
-
-bot.onText(/\/status/, async (msg) => {
-  if (msg.chat.id.toString() !== TELEGRAM_CHAT_ID.toString()) return;
-
-  const uptime = Date.now() - startTime;
-  const minutes = Math.floor(uptime / 60000);
-  const hours = Math.floor(minutes / 60);
-
-  await bot.sendMessage(
-    TELEGRAM_CHAT_ID,
-    `📊 BOT STATUS\n\n` +
-      `✅ Online: YES\n` +
-      `⏱ Uptime: ${hours}h ${minutes % 60}m\n\n` +
-      `👛 Wallet:\n${WALLET.toBase58()}`
-  );
-});
-
-/* ================= ONLINE MESSAGE ================= */
-
-setTimeout(async () => {
-  if (onlineSent) return;
+/* ===== SAFE SEND ===== */
+async function send(chatId, text) {
   try {
-    await bot.sendMessage(
-      TELEGRAM_CHAT_ID,
-      `⚡ BOT ONLINE\n👛 Wallet:\n${WALLET.toBase58()}`
-    );
-    onlineSent = true;
+    await bot.sendMessage(chatId, text, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
   } catch (e) {
     console.error("Telegram error:", e.message);
   }
+}
+
+/* ===== ONLINE MESSAGE ===== */
+setTimeout(() => {
+  if (onlineSent) return;
+
+  send(
+    TELEGRAM_CHAT_ID,
+    `✅ <b>PUMPFUN WATCHER ONLINE</b>\n\n` +
+      `👛 <b>Tracking wallet:</b>\n<code>${walletPubkey.toBase58()}</code>\n\n` +
+      `🔔 <b>Alerts:</b>\n• Token launches\n• Errors only`
+  );
+
+  onlineSent = true;
 }, 3000);
 
-/* ================= WATCHER ================= */
+/* ===== STATUS COMMAND ===== */
+bot.onText(/\/status/, async (msg) => {
+  if (msg.chat.id.toString() !== TELEGRAM_CHAT_ID.toString()) return;
 
+  const uptime = Math.floor((Date.now() - startTime) / 60000);
+
+  send(
+    TELEGRAM_CHAT_ID,
+    `📊 <b>BOT STATUS</b>\n\n` +
+      `✅ Online: YES\n` +
+      `⏱ Uptime: ${uptime} min\n\n` +
+      `👛 Wallet:\n<code>${walletPubkey.toBase58()}</code>`
+  );
+});
+
+/* ===== WATCH WALLET ===== */
 setInterval(async () => {
   try {
-    const sigs = await connection.getSignaturesForAddress(WALLET, {
-      limit: 2,
+    const sigs = await connection.getSignaturesForAddress(walletPubkey, {
+      limit: 5,
     });
 
     for (const s of sigs) {
@@ -81,11 +83,10 @@ setInterval(async () => {
         maxSupportedTransactionVersion: 0,
       });
 
-      await sleep(1200);
-
       if (!tx) continue;
 
-      const instructions = tx.transaction.message.instructions || [];
+      const instructions =
+        tx.transaction.message.instructions || [];
 
       for (const ix of instructions) {
         if (
@@ -94,12 +95,14 @@ setInterval(async () => {
         ) {
           const mint = ix.parsed.info.mint;
 
-          await bot.sendMessage(
+          send(
             TELEGRAM_CHAT_ID,
-            `🚀 NEW TOKEN CREATED\n\n` +
-              `🪙 Mint:\n${mint}\n\n` +
-              `🔥 Pump.fun:\nhttps://pump.fun/${mint}\n\n` +
-              `🔎 Solscan:\nhttps://solscan.io/token/${mint}`
+            `🚀🚀🚀 <b>NEW TOKEN ON PUMP.FUN</b> 🚀🚀🚀\n\n` +
+              `🧬 <b>Mint:</b>\n<code>${mint}</code>\n\n` +
+              `🔗 <b>Links:</b>\n` +
+              `• <a href="https://pump.fun/${mint}">Pump.fun</a>\n` +
+              `• <a href="https://solscan.io/token/${mint}">Solscan</a>\n\n` +
+              `⚡ Detected instantly`
           );
 
           console.log("NEW TOKEN:", mint);
@@ -107,24 +110,10 @@ setInterval(async () => {
       }
     }
   } catch (e) {
-    console.error("Watcher error:", e.message);
-
-    try {
-      await bot.sendMessage(
-        TELEGRAM_CHAT_ID,
-        `🚨 BOT ERROR\n\n${e.message}`
-      );
-    } catch {}
-  }
-}, 60 * 1000); // ⬅️ 1 раз на хвилину
-
-/* ================= HEARTBEAT ================= */
-
-setInterval(async () => {
-  try {
-    await bot.sendMessage(
+    send(
       TELEGRAM_CHAT_ID,
-      "💓 Бот живий і слідкує за гаманцем"
+      `🚨 <b>BOT ERROR</b>\n\n<code>${e.message}</code>`
     );
-  } catch {}
-}, 60 * 60 * 1000); // 1 година
+    console.error("Watcher error:", e.message);
+  }
+}, 15000);
