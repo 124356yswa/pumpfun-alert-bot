@@ -68,11 +68,14 @@ bot.onText(/\/status/, async (msg) => {
   );
 });
 
-/* ===== WATCH WALLET ===== */
+let rpcBlocked = false;
+
 setInterval(async () => {
+  if (rpcBlocked) return;
+
   try {
     const sigs = await connection.getSignaturesForAddress(walletPubkey, {
-      limit: 5,
+      limit: 3, // ⬅️ МЕНШЕ
     });
 
     for (const s of sigs) {
@@ -95,25 +98,38 @@ setInterval(async () => {
         ) {
           const mint = ix.parsed.info.mint;
 
-          send(
+          await send(
             TELEGRAM_CHAT_ID,
-            `🚀🚀🚀 <b>NEW TOKEN ON PUMP.FUN</b> 🚀🚀🚀\n\n` +
+            `🚀 <b>NEW TOKEN ON PUMP.FUN</b>\n\n` +
               `🧬 <b>Mint:</b>\n<code>${mint}</code>\n\n` +
               `🔗 <b>Links:</b>\n` +
               `• <a href="https://pump.fun/${mint}">Pump.fun</a>\n` +
-              `• <a href="https://solscan.io/token/${mint}">Solscan</a>\n\n` +
-              `⚡ Detected instantly`
+              `• <a href="https://solscan.io/token/${mint}">Solscan</a>`
           );
-
-          console.log("NEW TOKEN:", mint);
         }
       }
     }
   } catch (e) {
-    send(
-      TELEGRAM_CHAT_ID,
-      `🚨 <b>BOT ERROR</b>\n\n<code>${e.message}</code>`
-    );
-    console.error("Watcher error:", e.message);
+    if (e.message.includes("429")) {
+      rpcBlocked = true;
+
+      await send(
+        TELEGRAM_CHAT_ID,
+        `⚠️ <b>RPC RATE LIMIT</b>\n\n` +
+          `⏳ RPC тимчасово обмежив запити.\n` +
+          `🤖 Бот автоматично відновиться через 2 хвилини`
+      );
+
+      console.error("RPC 429 — cooldown");
+
+      setTimeout(() => {
+        rpcBlocked = false;
+      }, 2 * 60 * 1000); // ⬅️ 2 хв пауза
+    } else {
+      await send(
+        TELEGRAM_CHAT_ID,
+        `🚨 <b>BOT ERROR</b>\n\n<code>${e.message}</code>`
+      );
+    }
   }
-}, 15000);
+}, 30_000); // ⬅️ ТЕПЕР 30 СЕКУНД
