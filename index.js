@@ -15,7 +15,7 @@ const RPC_URL =
 // ==================
 
 const connection = new Connection(RPC_URL, "confirmed");
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 console.log("BOT STARTING");
 console.log("Watching wallet:", WALLET.toBase58());
