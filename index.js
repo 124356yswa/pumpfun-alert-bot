@@ -2,81 +2,70 @@ import TelegramBot from "node-telegram-bot-api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 /* ===== ENV ===== */
-const {
-  TELEGRAM_TOKEN,
-  TELEGRAM_CHAT_ID,
-  WALLET,
-  RPC_URL,
-} = process.env;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const RPC_URL = process.env.RPC_URL;
+const WALLET_ADDRESS = process.env.WALLET;
 
-if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID || !WALLET || !RPC_URL) {
-  console.error("❌ Missing ENV variables");
+/* ===== CHECK ENV ===== */
+if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID || !RPC_URL || !WALLET_ADDRESS) {
+  console.error("❌ ENV variables missing");
   process.exit(1);
 }
 
 /* ===== INIT ===== */
+const WALLET = new PublicKey(WALLET_ADDRESS);
 const connection = new Connection(RPC_URL, "confirmed");
-const walletPubkey = new PublicKey(WALLET);
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 console.log("BOT STARTING");
-console.log("Watching wallet:", walletPubkey.toBase58());
+console.log("Watching wallet:", WALLET.toBase58());
 
 /* ===== STATE ===== */
 const startTime = Date.now();
 const seen = new Set();
 let onlineSent = false;
 
-/* ===== SAFE SEND ===== */
-async function send(chatId, text) {
+/* ===== ONLINE MESSAGE (ONCE) ===== */
+setTimeout(async () => {
+  if (onlineSent) return;
   try {
-    await bot.sendMessage(chatId, text, {
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    });
+    await bot.sendMessage(
+      TELEGRAM_CHAT_ID,
+      `🟢 *BOT ONLINE*\n\n` +
+      `👛 *Wallet:*\n\`${WALLET.toBase58()}\`\n\n` +
+      `🛰 RPC connected\n` +
+      `⏱ Monitoring started`,
+      { parse_mode: "Markdown" }
+    );
+    onlineSent = true;
   } catch (e) {
     console.error("Telegram error:", e.message);
   }
-}
-
-/* ===== ONLINE MESSAGE ===== */
-setTimeout(() => {
-  if (onlineSent) return;
-
-  send(
-    TELEGRAM_CHAT_ID,
-    `✅ <b>PUMPFUN WATCHER ONLINE</b>\n\n` +
-      `👛 <b>Tracking wallet:</b>\n<code>${walletPubkey.toBase58()}</code>\n\n` +
-      `🔔 <b>Alerts:</b>\n• Token launches\n• Errors only`
-  );
-
-  onlineSent = true;
 }, 3000);
 
-/* ===== STATUS COMMAND ===== */
+/* ===== /status ===== */
 bot.onText(/\/status/, async (msg) => {
   if (msg.chat.id.toString() !== TELEGRAM_CHAT_ID.toString()) return;
 
-  const uptime = Math.floor((Date.now() - startTime) / 60000);
+  const uptimeMs = Date.now() - startTime;
+  const minutes = Math.floor(uptimeMs / 60000);
+  const hours = Math.floor(minutes / 60);
 
-  send(
+  await bot.sendMessage(
     TELEGRAM_CHAT_ID,
-    `📊 <b>BOT STATUS</b>\n\n` +
-      `✅ Online: YES\n` +
-      `⏱ Uptime: ${uptime} min\n\n` +
-      `👛 Wallet:\n<code>${walletPubkey.toBase58()}</code>`
+    `📊 *BOT STATUS*\n\n` +
+    `✅ Online: *YES*\n` +
+    `⏱ Uptime: *${hours}h ${minutes % 60}m*\n\n` +
+    `👛 Wallet:\n\`${WALLET.toBase58()}\``,
+    { parse_mode: "Markdown" }
   );
 });
 
-let rpcBlocked = false;
-
+/* ===== WATCH WALLET ===== */
 setInterval(async () => {
-  if (rpcBlocked) return;
-
   try {
-    const sigs = await connection.getSignaturesForAddress(walletPubkey, {
-      limit: 3, // ⬅️ МЕНШЕ
-    });
+    const sigs = await connection.getSignaturesForAddress(WALLET, { limit: 5 });
 
     for (const s of sigs) {
       if (seen.has(s.signature)) continue;
@@ -88,8 +77,7 @@ setInterval(async () => {
 
       if (!tx) continue;
 
-      const instructions =
-        tx.transaction.message.instructions || [];
+      const instructions = tx.transaction.message.instructions || [];
 
       for (const ix of instructions) {
         if (
@@ -98,38 +86,45 @@ setInterval(async () => {
         ) {
           const mint = ix.parsed.info.mint;
 
-          await send(
-            TELEGRAM_CHAT_ID,
-            `🚀 <b>NEW TOKEN ON PUMP.FUN</b>\n\n` +
-              `🧬 <b>Mint:</b>\n<code>${mint}</code>\n\n` +
-              `🔗 <b>Links:</b>\n` +
-              `• <a href="https://pump.fun/${mint}">Pump.fun</a>\n` +
-              `• <a href="https://solscan.io/token/${mint}">Solscan</a>`
-          );
+          const message =
+            `🚀 *NEW TOKEN DETECTED*\n\n` +
+            `🪙 *Mint Address*\n\`${mint}\`\n\n` +
+            `🔥 *Pump.fun*\n` +
+            `https://pump.fun/${mint}\n\n` +
+            `🔎 *Solscan*\n` +
+            `https://solscan.io/token/${mint}\n\n` +
+            `⚡ *Detected instantly*`;
+
+          await bot.sendMessage(TELEGRAM_CHAT_ID, message, {
+            parse_mode: "Markdown",
+            disable_web_page_preview: false,
+          });
+
+          console.log("NEW TOKEN:", mint);
         }
       }
     }
   } catch (e) {
-    if (e.message.includes("429")) {
-      rpcBlocked = true;
+    console.error("Watcher error:", e.message);
 
-      await send(
+    // error alert (НЕ спамить)
+    if (!e.message.includes("429")) {
+      await bot.sendMessage(
         TELEGRAM_CHAT_ID,
-        `⚠️ <b>RPC RATE LIMIT</b>\n\n` +
-          `⏳ RPC тимчасово обмежив запити.\n` +
-          `🤖 Бот автоматично відновиться через 2 хвилини`
-      );
-
-      console.error("RPC 429 — cooldown");
-
-      setTimeout(() => {
-        rpcBlocked = false;
-      }, 2 * 60 * 1000); // ⬅️ 2 хв пауза
-    } else {
-      await send(
-        TELEGRAM_CHAT_ID,
-        `🚨 <b>BOT ERROR</b>\n\n<code>${e.message}</code>`
+        `🚨 *BOT ERROR*\n\n\`${e.message}\``,
+        { parse_mode: "Markdown" }
       );
     }
   }
-}, 30_000); // ⬅️ ТЕПЕР 30 СЕКУНД
+}, 15000);
+
+/* ===== HEARTBEAT (1h) ===== */
+setInterval(async () => {
+  try {
+    await bot.sendMessage(
+      TELEGRAM_CHAT_ID,
+      "💓 *Bot alive*\nStill monitoring wallet",
+      { parse_mode: "Markdown" }
+    );
+  } catch {}
+}, 60 * 60 * 1000);
