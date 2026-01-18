@@ -1,11 +1,12 @@
 import TelegramBot from "node-telegram-bot-api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-/* ===== CONFIG (ENV) ===== */
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = 1358730050
-const WALLET = 6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm
-const RPC_URL = https://mainnet.helius-rpc.com/?api-key=...
+ENV CHECK: {
+  TELEGRAM_TOKEN: true,
+  TELEGRAM_CHAT_ID: '1358730050',
+  WALLET: '6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm',
+  RPC_URL: 'https://...'
+}
 
 /* ===== INIT ===== */
 const connection = new Connection(RPC_URL, "confirmed");
