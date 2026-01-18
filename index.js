@@ -1,12 +1,19 @@
 import TelegramBot from "node-telegram-bot-api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-ENV CHECK: {
-  TELEGRAM_TOKEN: true,
-  TELEGRAM_CHAT_ID: 1358730050
-  WALLET: 6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm
-  RPC_URL: 'https://...'
-}
+/* ===== ENV ===== */
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const RPC_URL = process.env.RPC_URL;
+const WALLET = new PublicKey(process.env.WALLET);
+
+/* ===== ENV CHECK ===== */
+console.log("ENV CHECK:", {
+  TELEGRAM_TOKEN: !!TELEGRAM_TOKEN,
+  TELEGRAM_CHAT_ID,
+  WALLET: WALLET.toBase58(),
+  RPC_URL: RPC_URL?.slice(0, 30) + "...",
+});
 
 /* ===== INIT ===== */
 const connection = new Connection(RPC_URL, "confirmed");
@@ -23,7 +30,6 @@ const seen = new Set();
 /* ===== /status COMMAND ===== */
 bot.onText(/\/status/, async (msg) => {
   const chatId = msg.chat.id;
-
   if (chatId.toString() !== TELEGRAM_CHAT_ID.toString()) return;
 
   const uptimeMs = Date.now() - startTime;
@@ -68,7 +74,6 @@ setInterval(async () => {
       const tx = await connection.getParsedTransaction(s.signature, {
         maxSupportedTransactionVersion: 0,
       });
-
       if (!tx) continue;
 
       const instructions = tx.transaction.message.instructions || [];
