@@ -3,8 +3,8 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 ENV CHECK: {
   TELEGRAM_TOKEN: true,
-  TELEGRAM_CHAT_ID: '1358730050',
-  WALLET: '6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm',
+  TELEGRAM_CHAT_ID: 1358730050
+  WALLET: 6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm
   RPC_URL: 'https://...'
 }
 
