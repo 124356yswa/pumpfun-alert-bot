@@ -123,6 +123,4 @@ process.on("unhandledRejection", async (reason) => {
   console.error("Unhandled Rejection:", reason);
   await sendError(`Unhandled Rejection:\n${reason}`);
 });
-bot.on("message", (msg) => {
-  console.log("MSG FROM:", msg.chat.id, msg.text);
-});
+
