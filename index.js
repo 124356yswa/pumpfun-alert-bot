@@ -3,9 +3,9 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 /* ===== CONFIG (ENV) ===== */
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const WALLET = new PublicKey(process.env.WALLET);
-const RPC_URL = process.env.RPC_URL;
+const TELEGRAM_CHAT_ID = 1358730050
+const WALLET = 6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm
+const RPC_URL = https://mainnet.helius-rpc.com/?api-key=...
 
 /* ===== INIT ===== */
 const connection = new Connection(RPC_URL, "confirmed");
