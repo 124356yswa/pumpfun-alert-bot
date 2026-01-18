@@ -1,19 +1,11 @@
 import TelegramBot from "node-telegram-bot-api";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-/* ===== ENV ===== */
+/* ===== CONFIG (ENV) ===== */
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const RPC_URL = process.env.RPC_URL;
 const WALLET = new PublicKey(process.env.WALLET);
-
-/* ===== ENV CHECK ===== */
-console.log("ENV CHECK:", {
-  TELEGRAM_TOKEN: !!TELEGRAM_TOKEN,
-  TELEGRAM_CHAT_ID,
-  WALLET: WALLET.toBase58(),
-  RPC_URL: RPC_URL?.slice(0, 30) + "...",
-});
+const RPC_URL = process.env.RPC_URL;
 
 /* ===== INIT ===== */
 const connection = new Connection(RPC_URL, "confirmed");
@@ -24,41 +16,50 @@ console.log("Watching wallet:", WALLET.toBase58());
 
 /* ===== STATE ===== */
 const startTime = Date.now();
-let onlineSent = false;
 const seen = new Set();
+let lastErrorSent = 0;
 
-/* ===== /status COMMAND ===== */
-bot.onText(/\/status/, async (msg) => {
-  const chatId = msg.chat.id;
-  if (chatId.toString() !== TELEGRAM_CHAT_ID.toString()) return;
+/* ===== ERROR ALERT ===== */
+async function sendError(text) {
+  const now = Date.now();
+  if (now - lastErrorSent < 60_000) return; // анти-спам 1 хв
+  lastErrorSent = now;
 
-  const uptimeMs = Date.now() - startTime;
-  const minutes = Math.floor(uptimeMs / 60000);
-  const hours = Math.floor(minutes / 60);
+  try {
+    await bot.sendMessage(
+      TELEGRAM_CHAT_ID,
+      `🚨 BOT ERROR\n\n${text}`
+    );
+  } catch (e) {
+    console.error("Failed to send error:", e.message);
+  }
+}
 
-  const text =
-    `📊 BOT STATUS\n\n` +
-    `✅ Online: YES\n` +
-    `⏱ Uptime: ${hours}h ${minutes % 60}m\n\n` +
-    `👛 Wallet:\n${WALLET.toBase58()}`;
-
-  await bot.sendMessage(chatId, text);
-});
-
-/* ===== ONLINE MESSAGE (ONCE) ===== */
+/* ===== ONLINE MESSAGE ===== */
 setTimeout(async () => {
-  if (onlineSent) return;
-
   try {
     await bot.sendMessage(
       TELEGRAM_CHAT_ID,
       `⚡ BOT ONLINE\n👛 Wallet:\n${WALLET.toBase58()}`
     );
-    onlineSent = true;
   } catch (e) {
     console.error("Telegram error:", e.message);
   }
 }, 3000);
+
+/* ===== /status ===== */
+bot.onText(/\/status/, async (msg) => {
+  if (msg.chat.id.toString() !== TELEGRAM_CHAT_ID.toString()) return;
+
+  const uptimeMs = Date.now() - startTime;
+  const h = Math.floor(uptimeMs / 3600000);
+  const m = Math.floor((uptimeMs % 3600000) / 60000);
+
+  await bot.sendMessage(
+    TELEGRAM_CHAT_ID,
+    `📊 BOT STATUS\n\n✅ Online: YES\n⏱ Uptime: ${h}h ${m}m\n\n👛 Wallet:\n${WALLET.toBase58()}`
+  );
+});
 
 /* ===== WATCH WALLET ===== */
 setInterval(async () => {
@@ -74,6 +75,7 @@ setInterval(async () => {
       const tx = await connection.getParsedTransaction(s.signature, {
         maxSupportedTransactionVersion: 0,
       });
+
       if (!tx) continue;
 
       const instructions = tx.transaction.message.instructions || [];
@@ -85,31 +87,39 @@ setInterval(async () => {
         ) {
           const mint = ix.parsed.info.mint;
 
-          const msg =
-            `🚀 NEW TOKEN CREATED\n\n` +
-            `🪙 Mint: ${mint}\n\n` +
-            `🔥 Pump.fun:\nhttps://pump.fun/${mint}\n\n` +
-            `🔎 Solscan:\nhttps://solscan.io/token/${mint}`;
-
-          await bot.sendMessage(TELEGRAM_CHAT_ID, msg);
-          console.log("NEW TOKEN:", mint);
+          await bot.sendMessage(
+            TELEGRAM_CHAT_ID,
+            `🚀 NEW TOKEN CREATED\n\n🪙 Mint: ${mint}\n\n🔥 Pump.fun:\nhttps://pump.fun/${mint}\n\n🔎 Solscan:\nhttps://solscan.io/token/${mint}`
+          );
         }
       }
     }
   } catch (e) {
     console.error("Watcher error:", e.message);
+    await sendError(`Watcher error:\n${e.message}`);
   }
 }, 15000);
 
-/* ===== HEARTBEAT (1 HOUR) ===== */
+/* ===== HEARTBEAT ===== */
 setInterval(async () => {
   try {
     await bot.sendMessage(
       TELEGRAM_CHAT_ID,
-      "💓 Бот живий і продовжує слідкувати за гаманцем"
+      "💓 Бот живий і працює"
     );
-    console.log("Heartbeat sent");
   } catch (e) {
     console.error("Heartbeat error:", e.message);
   }
 }, 60 * 60 * 1000);
+
+/* ===== GLOBAL CRASH HANDLERS ===== */
+process.on("uncaughtException", async (err) => {
+  console.error("Uncaught Exception:", err);
+  await sendError(`Uncaught Exception:\n${err.message}`);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", async (reason) => {
+  console.error("Unhandled Rejection:", reason);
+  await sendError(`Unhandled Rejection:\n${reason}`);
+});
