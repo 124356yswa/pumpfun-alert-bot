@@ -128,3 +128,15 @@ setInterval(async () => {
     );
   } catch {}
 }, 60 * 60 * 1000); // 1 година
+// ===== TEST ALERT (TEMPORARY) =====
+setTimeout(async () => {
+  try {
+    await bot.sendMessage(
+      TELEGRAM_CHAT_ID,
+      "🧪 TEST ALERT: бот працює і може надсилати повідомлення"
+    );
+    console.log("Test alert sent");
+  } catch (e) {
+    console.error("Test alert error:", e.message);
+  }
+}, 10000);
