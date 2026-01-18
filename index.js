@@ -73,3 +73,14 @@ setInterval(async () => {
     console.error("Watcher error:", e.message);
   }
 }, 15000);
+setInterval(async () => {
+  try {
+    await bot.sendMessage(
+      TELEGRAM_CHAT_ID,
+      "💓 Бот живий і продовжує слідкувати за гаманцем"
+    );
+    console.log("Heartbeat sent");
+  } catch (e) {
+    console.error("Heartbeat error:", e.message);
+  }
+}, 60 * 60 * 1000);
