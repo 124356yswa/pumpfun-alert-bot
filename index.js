@@ -16,6 +16,27 @@ const RPC_URL =
 
 const connection = new Connection(RPC_URL, "confirmed");
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const startTime = Date.now();
+
+bot.onText(/\/status/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== TELEGRAM_CHAT_ID.toString()) {
+    return;
+  }
+
+  const uptimeMs = Date.now() - startTime;
+  const minutes = Math.floor(uptimeMs / 60000);
+  const hours = Math.floor(minutes / 60);
+
+  const text =
+    `📊 BOT STATUS\n\n` +
+    `✅ Online: YES\n` +
+    `⏱ Uptime: ${hours}h ${minutes % 60}m\n\n` +
+    `👛 Wallet:\n${WALLET.toBase58()}`;
+
+  await bot.sendMessage(chatId, text);
+});
 
 console.log("BOT STARTING");
 console.log("Watching wallet:", WALLET.toBase58());
