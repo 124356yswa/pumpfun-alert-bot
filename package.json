@@ -2,14 +2,14 @@
   "name": "pumpfun-alert-bot",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",
     "node-telegram-bot-api": "^0.67.0"
-  },
-  "engines": {
-    "node": ">=18"
   }
 }
