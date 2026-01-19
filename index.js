@@ -1,124 +1,96 @@
 import TelegramBot from "node-telegram-bot-api";
 import { Connection, PublicKey } from "@solana/web3.js";
-import fetch from "node-fetch";
 
-/* ===== ENV ===== */
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const RPC_URL = process.env.RPC_URL;
-const WALLET = new PublicKey(process.env.WALLET);
+// ===== ENV =====
+const {
+  TELEGRAM_TOKEN,
+  TELEGRAM_CHAT_ID,
+  RPC_URL,
+  WALLET
+} = process.env;
 
-/* ===== INIT ===== */
-const connection = new Connection(RPC_URL, "confirmed");
+// ===== BOT =====
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-console.log("BOT STARTING");
-console.log("Watching wallet:", WALLET.toBase58());
+// ===== STATE =====
+let lastError = null;
+let lastErrorTime = null;
+let lastRpcCheck = null;
+let rpcStatus = "UNKNOWN";
 
-/* ===== STATE ===== */
-const seenTx = new Set();
-const prePumpMints = new Set();
+// ===== SOLANA =====
+const connection = new Connection(RPC_URL, {
+  commitment: "confirmed"
+});
 
-/* ===== HELPERS ===== */
-async function pumpPageExists(mint) {
+const walletPubkey = new PublicKey(WALLET);
+
+// ===== HELPERS =====
+function now() {
+  return new Date().toLocaleString("uk-UA");
+}
+
+async function sendErrorAlert(error) {
+  const msg = `
+🚨 *BOT ERROR*
+
+❌ *RPC problem*
+🕒 ${now()}
+
+📄 *Message:*
+\`${error.message}\`
+  `;
+  await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: "Markdown" });
+}
+
+// ===== RPC HEALTH CHECK =====
+async function checkRpc() {
   try {
-    const res = await fetch(`https://pump.fun/${mint}`, { method: "HEAD" });
-    return res.status === 200;
-  } catch {
-    return false;
+    await connection.getLatestBlockhash();
+    rpcStatus = "OK";
+    lastRpcCheck = now();
+  } catch (err) {
+    rpcStatus = "ERROR";
+    lastError = err.message;
+    lastErrorTime = now();
+    lastRpcCheck = now();
+    await sendErrorAlert(err);
   }
 }
 
-async function sendError(error) {
-  await bot.sendMessage(
-    TELEGRAM_CHAT_ID,
-    `🚨 <b>BOT ERROR</b>\n\n<code>${error}</code>`,
-    { parse_mode: "HTML" }
-  );
+// ===== WATCHER =====
+async function startWatcher() {
+  console.log("BOT STARTING");
+  console.log("Watching wallet:", WALLET);
+
+  // первинна перевірка
+  await checkRpc();
+
+  // регулярна перевірка RPC (раз в 30 сек)
+  setInterval(checkRpc, 30_000);
 }
 
-/* ===== ONLINE MESSAGE ===== */
-setTimeout(() => {
-  bot.sendMessage(
-    TELEGRAM_CHAT_ID,
-    `✅ <b>BOT ONLINE</b>\n\n👛 Wallet:\n<code>${WALLET.toBase58()}</code>`,
-    { parse_mode: "HTML" }
-  );
-}, 2000);
+startWatcher();
 
-/* ===== WATCHER ===== */
-setInterval(async () => {
-  try {
-    const sigs = await connection.getSignaturesForAddress(WALLET, { limit: 5 });
-
-    for (const s of sigs) {
-      if (seenTx.has(s.signature)) continue;
-      seenTx.add(s.signature);
-
-      const tx = await connection.getParsedTransaction(s.signature, {
-        maxSupportedTransactionVersion: 0,
-      });
-      if (!tx) continue;
-
-      const instructions = tx.transaction.message.instructions || [];
-
-      for (const ix of instructions) {
-        if (
-          ix.program === "spl-token" &&
-          ix.parsed?.type === "initializeMint"
-        ) {
-          const mint = ix.parsed.info.mint;
-
-          // ===== PRE-PUMP =====
-          const exists = await pumpPageExists(mint);
-          if (!exists) {
-            prePumpMints.add(mint);
-
-            await bot.sendMessage(
-              TELEGRAM_CHAT_ID,
-              `🟡 <b>PRE-PUMP DETECTED</b>\n\n` +
-                `🪙 Mint:\n<code>${mint}</code>\n\n` +
-                `⚠️ Pump.fun ще НЕ активний\n` +
-                `🔎 <a href="https://solscan.io/token/${mint}">Solscan</a>`,
-              { parse_mode: "HTML", disable_web_page_preview: true }
-            );
-          }
-        }
-      }
-    }
-  } catch (e) {
-    await sendError(e.message);
-  }
-}, 15000);
-
-/* ===== CHECK LIVE ON PUMP ===== */
-setInterval(async () => {
-  for (const mint of [...prePumpMints]) {
-    const live = await pumpPageExists(mint);
-    if (live) {
-      prePumpMints.delete(mint);
-
-      await bot.sendMessage(
-        TELEGRAM_CHAT_ID,
-        `🚀 <b>LIVE ON PUMP.FUN</b>\n\n` +
-          `🪙 Mint:\n<code>${mint}</code>\n\n` +
-          `🔥 <a href="https://pump.fun/${mint}">Open pump.fun</a>\n` +
-          `🔎 <a href="https://solscan.io/token/${mint}">Solscan</a>`,
-        { parse_mode: "HTML", disable_web_page_preview: true }
-      );
-    }
-  }
-}, 10000);
-
-/* ===== /status ===== */
+// ===== TELEGRAM COMMANDS =====
 bot.onText(/\/status/, async (msg) => {
   if (msg.chat.id.toString() !== TELEGRAM_CHAT_ID) return;
 
-  await bot.sendMessage(
-    TELEGRAM_CHAT_ID,
-    `📊 <b>BOT STATUS</b>\n\n` +
-      `✅ Online\n` +
-      `👛 Wallet:\n<code>${WALLET.toBase58()}</code>`,
-    { parse_mode: "HTML" }
-  );
+  const statusMsg = `
+🤖 *BOT STATUS*
+
+🟢 *Bot:* RUNNING
+🌐 *RPC:* ${rpcStatus}
+⏱ *Last RPC check:* ${lastRpcCheck ?? "—"}
+
+👛 *Wallet:*
+\`${WALLET}\`
+
+🚨 *Last error:*
+${lastError ? `\`${lastError}\`\n🕒 ${lastErrorTime}` : "None"}
+  `;
+
+  await bot.sendMessage(TELEGRAM_CHAT_ID, statusMsg, {
+    parse_mode: "Markdown"
+  });
 });
